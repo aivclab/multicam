@@ -1,6 +1,9 @@
 Synchronized reading of multiple webcams
 
+`python setup.py install` for system-wide installation
+`python setup.py install --user` for user-specific installation
 
+```
 import numpy as np
 import multicam as mc
 from streamserver import StreamServer
@@ -12,3 +15,4 @@ with StreamServer("localhost", fmt='RGB') as ss, \
             ss.set_frame(np.hstack(res[:,::4,::4]))
     except KeyboardInterrupt:
         pass
+``` 
