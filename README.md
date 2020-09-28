@@ -1,5 +1,6 @@
 Synchronized reading of multiple webcams using v4l2
 ----------------------------------------
+Only runs under Linux
 
 Installation
 ------------
