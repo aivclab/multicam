@@ -1,18 +1,23 @@
-Synchronized reading of multiple webcams
+Synchronized reading of multiple webcams using v4l2
+----------------------------------------
 
+Installation
+------------
+`sudo apt install libjpeg-turbo8-dev libjpeg-dev cmake`
 `python setup.py install` for system-wide installation
 `python setup.py install --user` for user-specific installation
 
+
+Use
+---
 ```
 import numpy as np
 import multicam as mc
-from streamserver import StreamServer
-with StreamServer("localhost", fmt='RGB') as ss, \
-     mc.Camsys(['/dev/video0','/dev/video2'], (640,480), 'YUYV', fps=30) as cs:
+with mc.Camsys(['/dev/video0','/dev/video2'], (640,480), 'YUYV', fps=30) as cs:
     try:
         while True: 
-            res = cs.read()
-            ss.set_frame(np.hstack(res[:,::4,::4]))
+            res = cs.read() #RGB images
+            print(res.shape)
     except KeyboardInterrupt:
         pass
 ``` 
