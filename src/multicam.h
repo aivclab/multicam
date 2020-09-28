@@ -5,7 +5,7 @@ struct buffer {
     size_t length;
 };
 
-typedef struct CameraObject {
+typedef struct v4l2camObject {
     PyObject_HEAD
     PyObject *device;
     char* format;
@@ -16,6 +16,6 @@ typedef struct CameraObject {
     unsigned int fps;
     int fd;
     int fourcc;
-} CameraObject;
+} v4l2camObject;
 
 #endif //MULTICAM_H

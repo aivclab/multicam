@@ -1,4 +1,3 @@
-from .backend import Camera
-from .camsys import Camsys
+from .multicam import Multicam, Camera
 
-__all__ = ["Camsys", "Camera"]
+__all__ = ["Multicam", "Camera"]

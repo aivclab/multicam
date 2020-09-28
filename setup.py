@@ -21,7 +21,7 @@ class Buildlibyuv(build_ext):
 
 setup(
     name='multicam',
-    version='1.0',
+    version='1.1',
     ext_modules=[backend],
     packages=find_packages(),
     cmdclass={'build_ext': Buildlibyuv},

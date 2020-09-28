@@ -1,6 +1,6 @@
 #!/bin/bash
-echo "Installing necessary libraries using apt"
-sudo apt install libjpeg-turbo8-dev libjpeg-dev cmake
+#echo "Installing necessary libraries using apt"
+#sudo apt install libjpeg-turbo8-dev libjpeg-dev cmake
 git clone https://chromium.googlesource.com/libyuv/libyuv
 cd libyuv
 mkdir out

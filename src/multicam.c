@@ -12,12 +12,12 @@
 #define STR2FOURCC(s) FOURCC(toupper(s[0]),toupper(s[1]),toupper(s[2]),toupper(s[3]))
 
 static int
-Camera_init(CameraObject *self, PyObject *args, PyObject *kwargs)
+v4l2cam_init(v4l2camObject *self, PyObject *args, PyObject *kwargs)
 {
     PyObject *device = NULL, *tmp;
-    static char *kwlist[] = {"device", "size", "fps", "format", NULL};
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|(ii)Is", kwlist,
-                                    &device, &(self->width), &(self->height), &(self->fps), &(self->format)))
+    static char *kwlist[] = {"device", "size", "format", "fps", NULL};
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|(ii)sI", kwlist,
+                                    &device, &(self->width), &(self->height), &(self->format), &(self->fps)))
         return -1;        
     tmp = self->device;
     Py_INCREF(device);
@@ -42,7 +42,7 @@ Camera_init(CameraObject *self, PyObject *args, PyObject *kwargs)
 }
 
 static void
-Camera_dealloc(CameraObject *self)
+v4l2cam_dealloc(v4l2camObject *self)
 {
     Py_XDECREF(self->device);
     //Py_XDECREF(self->format);
@@ -50,7 +50,7 @@ Camera_dealloc(CameraObject *self)
 }
 
 PyObject *
-camera_start(CameraObject *self, PyObject *args)
+v4l2cam_start(v4l2camObject *self, PyObject *args)
 {
     if (v4l2_open_device(self) == 0) {
         v4l2_close_device(self);
@@ -71,7 +71,7 @@ camera_start(CameraObject *self, PyObject *args)
 }
 
 PyObject *
-camera_stop(CameraObject *self, PyObject *args)
+v4l2cam_stop(v4l2camObject *self, PyObject *args)
 {
     if (v4l2_stop_capturing(self) == 0)
         return NULL;
@@ -83,7 +83,7 @@ camera_stop(CameraObject *self, PyObject *args)
 }
 
 typedef struct CamReadWorkerArgStruct {
-    CameraObject *cam;
+    v4l2camObject *cam;
     uint8_t *dst;
     int res;
 } CamReadWorkerArgStruct;
@@ -92,7 +92,7 @@ void *
 cam_read_worker(void *argp)
 {
     CamReadWorkerArgStruct *args = argp;
-    CameraObject *cam = args->cam;
+    v4l2camObject *cam = args->cam;
     uint8_t *dst = args->dst;
     int libyuv_res;
     
@@ -145,7 +145,7 @@ cam_read_worker(void *argp)
 }
 
 PyObject *
-camera_read(CameraObject *self)
+v4l2cam_read(v4l2camObject *self)
 {
     pthread_t thread;
     CamReadWorkerArgStruct cam_args;
@@ -179,10 +179,10 @@ camsys_read(PyObject *self, PyObject *args)
     pthread_t *threads = NULL;
     CamReadWorkerArgStruct *cam_args = NULL;
     PyObject *res = NULL;
-    PyObject *camsys, *cams, *pywidth=NULL, *pyheight=NULL, *cam;
-    if (!PyArg_ParseTuple(args, "O", &camsys)) return NULL;
+    PyObject *camsys, *cams, *pywidth=NULL, *pyheight=NULL, *camobj, *cam=NULL;
+    if (!PyArg_ParseTuple(args, "OO", &camsys, &cams)) return NULL;
         
-    cams = PyObject_GetAttrString(camsys, "cameras"); //INCREF!
+//    cams = PyObject_GetAttrString(camsys, "cameras"); //INCREF!
     if (!cams) return NULL;
 
     int N = (int) PySequence_Length(cams);
@@ -210,12 +210,12 @@ camsys_read(PyObject *self, PyObject *args)
     uint8_t *dst = (uint8_t *) PyArray_DATA((PyArrayObject *) arr);
 
     for (int i=0; i<N; i++) { //Prepare thread args
-        cam = PySequence_GetItem(cams, i);
-        if (!cam) goto RETURN;
-        cam_args[i] = (CamReadWorkerArgStruct){(CameraObject *) cam, &dst[i * cam_dst_sz], 0};
+        camobj = PySequence_GetItem(cams, i);
+        if (!camobj) goto RETURN;
+        cam = PyObject_GetAttrString(camobj, "_v4l2cam");
+        cam_args[i] = (CamReadWorkerArgStruct){(v4l2camObject *) cam, &dst[i * cam_dst_sz], 0};
         Py_XDECREF(cam);
     }
-    
     for (int i=0; i<N; i++) //Run threads
         pthread_create(&(threads[i]), NULL, cam_read_worker, (void *)(&cam_args[i]));
     for (int i=0; i<N; i++) 
@@ -228,57 +228,55 @@ camsys_read(PyObject *self, PyObject *args)
     }
 
     res = arr;
-
     RETURN:
     free(threads);
     free(cam_args);
-    Py_XDECREF(cams);
     Py_XDECREF(pywidth);
     Py_XDECREF(pyheight);
     return res;
 }
 
-PyMethodDef Camera_methods[] = {
-    {"start", (PyCFunction)camera_start, METH_NOARGS, ""},
-    {"stop",  (PyCFunction)camera_stop,  METH_NOARGS, ""},
-    {"read",  (PyCFunction)camera_read,  METH_NOARGS, ""},
+PyMethodDef v4l2cam_methods[] = {
+    {"start", (PyCFunction)v4l2cam_start, METH_NOARGS, ""},
+    {"stop",  (PyCFunction)v4l2cam_stop,  METH_NOARGS, ""},
+    {"read",  (PyCFunction)v4l2cam_read,  METH_NOARGS, ""},
     {NULL, NULL, 0, NULL}
 };
 
 //TODO: expose fd?
-static PyMemberDef Camera_members[] = {
-    {"device", T_OBJECT_EX, offsetof(CameraObject, device), 0, "device path"},
-    {"format", T_OBJECT_EX, offsetof(CameraObject, format), 0, "format specification"},
-    {"width", T_INT, offsetof(CameraObject, width), 0, "image width"},
-    {"height", T_INT, offsetof(CameraObject, height), 0, "image height"},
-    {"fd", T_INT, offsetof(CameraObject, fd), 0, "fd"},
+static PyMemberDef v4l2cam_members[] = {
+    {"device", T_OBJECT_EX, offsetof(v4l2camObject, device), 0, "device path"},
+    {"format", T_OBJECT_EX, offsetof(v4l2camObject, format), 0, "format specification"},
+    {"width", T_INT, offsetof(v4l2camObject, width), 0, "image width"},
+    {"height", T_INT, offsetof(v4l2camObject, height), 0, "image height"},
+    {"fd", T_INT, offsetof(v4l2camObject, fd), 0, "fd"},
     {NULL}  /* Sentinel */
 };
 
-static PyTypeObject CameraType = {
+static PyTypeObject v4l2camType = {
     PyVarObject_HEAD_INIT(NULL, 0)
-    .tp_name = "multicam.Camera",
-    .tp_basicsize = sizeof(CameraObject),
+    .tp_name = "multicam.v4l2cam",
+    .tp_basicsize = sizeof(v4l2camObject),
     .tp_itemsize = 0,
-    .tp_dealloc = (destructor) Camera_dealloc,
-    .tp_methods = Camera_methods,
-    .tp_members = Camera_members,
+    .tp_dealloc = (destructor) v4l2cam_dealloc,
+    .tp_methods = v4l2cam_methods,
+    .tp_members = v4l2cam_members,
     .tp_flags = Py_TPFLAGS_DEFAULT,
-    .tp_init = (initproc) Camera_init,
+    .tp_init = (initproc) v4l2cam_init,
     .tp_new = PyType_GenericNew,
 };
 
-static PyMethodDef CameraMethods[] = {
+static PyMethodDef v4l2camMethods[] = {
     {"camsys_read",  (PyCFunction)camsys_read, METH_VARARGS, NULL},
     {NULL, NULL, 0, NULL}        /* Sentinel */
 };
 
-static PyModuleDef cameramodule = {
+static PyModuleDef multicammodule = {
     PyModuleDef_HEAD_INIT,
     .m_name = "multicam",
     .m_doc = "v4l2 camera interface",
     .m_size = -1,
-    .m_methods = CameraMethods
+    .m_methods = v4l2camMethods
 };
 
 PyMODINIT_FUNC
@@ -287,16 +285,16 @@ PyInit_backend(void)
     Py_Initialize();
     import_array();
     PyObject *m;
-    if (PyType_Ready(&CameraType) < 0)
+    if (PyType_Ready(&v4l2camType) < 0)
         return NULL;
 
-    m = PyModule_Create(&cameramodule);
+    m = PyModule_Create(&multicammodule);
     if (m == NULL)
         return NULL;
 
-    Py_INCREF(&CameraType);
-    if (PyModule_AddObject(m, "Camera", (PyObject *) &CameraType) < 0) {
-        Py_DECREF(&CameraType);
+    Py_INCREF(&v4l2camType);
+    if (PyModule_AddObject(m, "v4l2cam", (PyObject *) &v4l2camType) < 0) {
+        Py_DECREF(&v4l2camType);
         Py_DECREF(m);
         return NULL;
     }

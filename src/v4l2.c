@@ -39,7 +39,7 @@ v4l2_set_pixelformat(int fd, struct v4l2_format *fmt, unsigned long pixelformat)
     fmt->fmt.pix.pixelformat = pixelformat;
 
     if (-1 == v4l2_xioctl(fd, VIDIOC_S_FMT, fmt)) {
-        PyErr_Format(PyExc_SystemError, "ioctl(VIDIOC_S_FMT) failed");
+        PyErr_Format(PyExc_SystemError, "Failed while trying to set pixel format (ioctl(VIDIOC_S_FMT))");
         return 0;
     }
 
@@ -47,7 +47,7 @@ v4l2_set_pixelformat(int fd, struct v4l2_format *fmt, unsigned long pixelformat)
         return 1;
     }
     else {
-        PyErr_Format(PyExc_SystemError, "ioctl(VIDIOC_S_FMT) failed");
+        PyErr_Format(PyExc_SystemError, "Failed while trying to set pixel format (ioctl(VIDIOC_S_FMT))");
         return 0;
     }
 }
@@ -89,13 +89,8 @@ v4l2_set_control(int fd, int id, int value)
 
 
 
-/* query each buffer to see if it contains a frame ready to take */
-/* FIXME: There needs to be a better way to implement non-blocking frame
-   grabbing than only doing a get_image if query_image returns true. Many
-   cameras will always return false, and will only respond to blocking calls.
- */
 int
-v4l2_query_buffer(CameraObject *self)
+v4l2_query_buffer(v4l2camObject *self)
 {
     unsigned int i;
 
@@ -125,7 +120,7 @@ v4l2_query_buffer(CameraObject *self)
 }
 
 int
-v4l2_stop_capturing(CameraObject *self)
+v4l2_stop_capturing(v4l2camObject *self)
 {
     enum v4l2_buf_type type;
 
@@ -142,7 +137,7 @@ v4l2_stop_capturing(CameraObject *self)
 }
 
 int
-v4l2_start_capturing(CameraObject *self)
+v4l2_start_capturing(v4l2camObject *self)
 {
     unsigned int i;
     enum v4l2_buf_type type;
@@ -177,7 +172,7 @@ v4l2_start_capturing(CameraObject *self)
 }
 
 int
-v4l2_uninit_device(CameraObject *self)
+v4l2_uninit_device(v4l2camObject *self)
 {
     unsigned int i;
 
@@ -195,7 +190,7 @@ v4l2_uninit_device(CameraObject *self)
 }
 
 int
-v4l2_init_mmap(CameraObject *self)
+v4l2_init_mmap(v4l2camObject *self)
 {
     struct v4l2_requestbuffers req;
 
@@ -271,7 +266,7 @@ v4l2_init_mmap(CameraObject *self)
 
 
 
-int v4l2_init_device(CameraObject *self)
+int v4l2_init_device(v4l2camObject *self)
 {
     struct v4l2_capability cap;
     struct v4l2_format fmt;
@@ -309,9 +304,14 @@ int v4l2_init_device(CameraObject *self)
     }
 
     /* Note VIDIOC_S_FMT may change width and height. */
-    self->width = fmt.fmt.pix.width;
-    self->height = fmt.fmt.pix.height;
+    if (((unsigned int) self->width != fmt.fmt.pix.width) || ( (unsigned int) self->height != fmt.fmt.pix.height)) {
+        PyErr_Format(PyExc_SystemError, "ioctl(VIDIOC_S_PARM) failed");
+        return 0;  
+    }
+    //self->width = fmt.fmt.pix.width;
+    //self->height = fmt.fmt.pix.height;
     //self->fourcc = fmt.fmt.pix.pixelformat;
+    
 
     struct v4l2_streamparm parm;
     parm.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
@@ -321,13 +321,12 @@ int v4l2_init_device(CameraObject *self)
     parm.parm.capture.timeperframe.denominator = self->fps;
 
     if (-1 == v4l2_xioctl(self->fd, VIDIOC_S_PARM, &parm)) {
-        PyErr_Format(PyExc_SystemError, "ioctl(VIDIOC_S_PARM) failed 1");
+        PyErr_Format(PyExc_SystemError, "ioctl(VIDIOC_S_PARM) failed");
         return 0;
     }
 
-    printf("%i/%i\n", parm.parm.capture.timeperframe.numerator, parm.parm.capture.timeperframe.denominator);
     if ((parm.parm.capture.timeperframe.numerator != 1) || (parm.parm.capture.timeperframe.denominator != self->fps)) {
-        PyErr_Format(PyExc_SystemError, "ioctl(VIDIOC_S_PARM) failed 2");
+        PyErr_Format(PyExc_SystemError, "ioctl(VIDIOC_S_PARM) failed");
         return 0;
     }
 
@@ -341,7 +340,7 @@ int v4l2_init_device(CameraObject *self)
 }
 
 int
-v4l2_close_device(CameraObject *self)
+v4l2_close_device(v4l2camObject *self)
 {
     if (self->fd == -1)
         return 1;
@@ -356,7 +355,7 @@ v4l2_close_device(CameraObject *self)
 }
 
 int
-v4l2_open_device(CameraObject *self)
+v4l2_open_device(v4l2camObject *self)
 {
     struct stat st;
     PyObject *fspath = PyOS_FSPath(self->device); //self->device refcnt +1
@@ -374,7 +373,6 @@ v4l2_open_device(CameraObject *self)
         goto return_err;
     }
 
-    //TODO | O_DIRECT?
     self->fd = open(device, O_RDWR, 0);
 
     if (-1 == self->fd) {
