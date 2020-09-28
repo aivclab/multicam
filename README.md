@@ -13,11 +13,14 @@ Use
 ```
 import numpy as np
 import multicam as mc
-with mc.Camsys(['/dev/video0','/dev/video2'], (640,480), 'YUYV', fps=30) as cs:
+with mc.Multicam(['/dev/video0','/dev/video2'], (640,480), 'YUYV', fps=30) as cs:
     try:
         while True: 
             res = cs.read() #RGB images
             print(res.shape)
     except KeyboardInterrupt:
         pass
+
+with mc.Camera(0, (640,480), 'YUYV', fps=30) as c:
+    print(c.read().shape)
 ``` 
