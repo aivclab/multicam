@@ -1,0 +1,3 @@
+include build_libyuv.sh
+include src/*.h
+include src/*.c
