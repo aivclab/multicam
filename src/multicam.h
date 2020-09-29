@@ -7,13 +7,14 @@ struct buffer {
 
 typedef struct v4l2camObject {
     PyObject_HEAD
-    PyObject *device;
+//    PyObject *device;
+    char* device;
     char* format;
     struct buffer* buffers;
     unsigned int n_buffers;
     int width;
     int height;
-    unsigned int fps;
+    float fps;
     int fd;
     int fourcc;
 } v4l2camObject;

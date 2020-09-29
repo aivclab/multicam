@@ -1,7 +1,7 @@
-from .backend import v4l2cam, camsys_read
+from .backend import v4l2cam, camsys_read, is_valid_device, get_formats
 from pathlib import Path
 import numpy as np
-
+__all__ = ["Multicam", "Camera"]
 class Camera():
     '''
       Set up a camera.
@@ -25,6 +25,7 @@ class Camera():
        stop() : Stop camera
        read(n=None) :
          if `n` is not `None`; read `n` frames.
+       get_formats() : Get available formats, resolutions and framerates
          
       Examples
       --------
@@ -56,7 +57,10 @@ class Camera():
         d = Path(d)
         if not d.exists(): raise ValueError(f"No such device '{d}'.")
         return d
-    
+   
+    def get_formats(self):
+        return get_formats(self.dev)
+   
     @property
     def started(self):
         return ((self._v4l2cam is not None) and (self._v4l2cam.fd != -1))

@@ -7,6 +7,7 @@
 #include "libyuv.h"
 #include "multicam.h"
 #include "v4l2.h"
+#include <fcntl.h>   
 
 #define CLEAR(x) memset(&(x), 0, sizeof(x))
 #define STR2FOURCC(s) FOURCC(toupper(s[0]),toupper(s[1]),toupper(s[2]),toupper(s[3]))
@@ -14,16 +15,13 @@
 static int
 v4l2cam_init(v4l2camObject *self, PyObject *args, PyObject *kwargs)
 {
-    PyObject *device = NULL, *tmp;
+    PyObject *device = NULL;//, *tmp;
     static char *kwlist[] = {"device", "size", "format", "fps", NULL};
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|(ii)sI", kwlist,
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|(ii)sf", kwlist,
                                     &device, &(self->width), &(self->height), &(self->format), &(self->fps)))
         return -1;        
-    tmp = self->device;
-    Py_INCREF(device);
-    self->device = device;
-    Py_XDECREF(tmp);
-    
+    PyObject *fspath = PyOS_FSPath(device);
+    self->device = (char *) PyUnicode_AsUTF8(fspath);
     //Format
     if (self->format) {
         if (strlen(self->format) != 4) {
@@ -236,14 +234,31 @@ camsys_read(PyObject *self, PyObject *args)
     return res;
 }
 
+static PyObject *
+is_valid_device(PyObject *module, PyObject *device)
+{
+    PyObject *fspath = PyOS_FSPath(device);
+    char *devicestr = (char *) PyUnicode_AsUTF8(fspath);
+    int fd = open(devicestr, O_RDONLY, 0);
+    
+    int res = v4l2_test_valid_device(fd, devicestr);
+    close(fd);
+    if (res == 0) {
+        PyErr_Clear();
+        Py_RETURN_FALSE;
+    }
+    else
+        Py_RETURN_TRUE;
+        
+}
+
 PyMethodDef v4l2cam_methods[] = {
-    {"start", (PyCFunction)v4l2cam_start, METH_NOARGS, ""},
-    {"stop",  (PyCFunction)v4l2cam_stop,  METH_NOARGS, ""},
-    {"read",  (PyCFunction)v4l2cam_read,  METH_NOARGS, ""},
+    {"start",    (PyCFunction)v4l2cam_start,    METH_NOARGS, ""},
+    {"stop",     (PyCFunction)v4l2cam_stop,     METH_NOARGS, ""},
+    {"read",     (PyCFunction)v4l2cam_read,     METH_NOARGS, ""},
     {NULL, NULL, 0, NULL}
 };
 
-//TODO: expose fd?
 static PyMemberDef v4l2cam_members[] = {
     {"device", T_OBJECT_EX, offsetof(v4l2camObject, device), 0, "device path"},
     {"format", T_OBJECT_EX, offsetof(v4l2camObject, format), 0, "format specification"},
@@ -252,6 +267,114 @@ static PyMemberDef v4l2cam_members[] = {
     {"fd", T_INT, offsetof(v4l2camObject, fd), 0, "fd"},
     {NULL}  /* Sentinel */
 };
+
+
+
+
+
+static PyObject *
+get_framerates(int fd, __u32 pixel_format, __u32 width, __u32 height) {
+    PyObject *fpslist = NULL;
+    struct v4l2_frmivalenum fps;
+    memset(&fps,0,sizeof(fps));
+    fps.index = 0;
+    fps.pixel_format = pixel_format;
+    fps.width = width;
+    fps.height = height;
+    float fmin, fmax, fstep;
+    
+    fpslist = PyList_New(0);
+    
+    while (0 == v4l2_xioctl(fd, VIDIOC_ENUM_FRAMEINTERVALS, &fps)) {
+        if (fps.type == V4L2_FRMIVAL_TYPE_DISCRETE) {
+            PyList_Append(fpslist, Py_BuildValue("f", 1.0*fps.discrete.denominator/fps.discrete.numerator));
+            fps.index++;
+        }
+        else {
+            fmin = fps.stepwise.min.denominator/fps.stepwise.min.numerator;
+            fmax = fps.stepwise.max.denominator/fps.stepwise.max.numerator;
+            fstep = fps.stepwise.step.denominator/fps.stepwise.step.numerator;
+            for (unsigned int f=fmin; f<=fmax; f+=fstep)
+                PyList_Append(fpslist, Py_BuildValue("i", f));
+            break;
+        }
+    }
+    return fpslist;
+}
+
+
+static PyObject *
+get_framesizes(int fd, struct v4l2_fmtdesc *fmt) {
+    PyObject *fszdict = NULL;
+    struct v4l2_frmsizeenum fsz;
+    memset(&fsz,0,sizeof(fsz));
+    fsz.index = 0;
+    fsz.pixel_format = fmt->pixelformat;
+    fszdict = PyDict_New();
+    PyObject *key = NULL;
+    __u32 h,w;
+    
+    while (0 == v4l2_xioctl(fd, VIDIOC_ENUM_FRAMESIZES, &fsz)) {
+        if (fsz.type == V4L2_FRMSIZE_TYPE_DISCRETE) {
+            w = fsz.discrete.width;
+            h = fsz.discrete.height;
+            key = Py_BuildValue("ii", w, h);
+            PyDict_SetItem(fszdict, key, get_framerates(fd, fsz.pixel_format, w,h));
+            fsz.index++;
+        }
+        else {
+            for (w=fsz.stepwise.min_width; w<=fsz.stepwise.max_width; w+=fsz.stepwise.step_width)
+                for (h=fsz.stepwise.min_height; h<=fsz.stepwise.max_height; h+=fsz.stepwise.step_height) {
+                    key = Py_BuildValue("ii", w, h);
+                    PyDict_SetItem(fszdict, key, get_framerates(fd, fsz.pixel_format, w,h));
+                 }
+            break;
+        }
+    }
+    return fszdict;
+}
+
+static PyObject *
+get_formats(PyObject *module, PyObject *device)
+{
+    struct v4l2_fmtdesc fmt;
+
+    PyObject *fmtdict = NULL, *details = NULL;
+    char fourcc[] = "xxxx";
+
+    
+    PyObject *fspath = PyOS_FSPath(device);
+    char *devicestr = (char *) PyUnicode_AsUTF8(fspath);
+    int fd = open(devicestr, O_RDONLY, 0);
+    int valid = v4l2_test_valid_device(fd, devicestr);
+    if (!valid) goto return_err;
+
+    fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;   
+    fmt.index = 0;
+    fmtdict = PyDict_New();
+    //Loop formats
+    while (0 == v4l2_xioctl(fd, VIDIOC_ENUM_FMT, &fmt)) {
+        fmt.index++;
+        memcpy(&fourcc, &fmt.pixelformat, 4);
+        details = PyDict_New();
+        
+        PyDict_SetItemString(details, "description", PyUnicode_FromString((char *) fmt.description));
+        PyDict_SetItemString(details, "compressed", PyBool_FromLong((long) (fmt.flags & V4L2_FMT_FLAG_COMPRESSED)));
+        PyDict_SetItemString(details, "emulated", PyBool_FromLong((long) (fmt.flags & V4L2_FMT_FLAG_EMULATED)));
+        
+        PyDict_SetItemString(details, "framesizes", get_framesizes(fd, &fmt));
+        PyDict_SetItemString(fmtdict, fourcc, details);
+    }
+    if (!PyErr_Occurred())
+        return fmtdict;
+    
+    
+    return_err:
+    close(fd);
+    Py_XDECREF(fmtdict);
+    return NULL;    
+}
+
 
 static PyTypeObject v4l2camType = {
     PyVarObject_HEAD_INIT(NULL, 0)
@@ -267,7 +390,9 @@ static PyTypeObject v4l2camType = {
 };
 
 static PyMethodDef v4l2camMethods[] = {
-    {"camsys_read",  (PyCFunction)camsys_read, METH_VARARGS, NULL},
+    {"camsys_read",     (PyCFunction)camsys_read,     METH_VARARGS, NULL},
+    {"is_valid_device", (PyCFunction)is_valid_device, METH_O,       NULL},
+    {"get_formats",     (PyCFunction)get_formats,     METH_O,       NULL},
     {NULL, NULL, 0, NULL}        /* Sentinel */
 };
 
