@@ -186,5 +186,5 @@ class Multicam():
     def __del__(self): self.stop()
     
 def list_cams():
-    return sorted([p for p in Path("/dev/").glob("video*") if mc.is_valid_device(p)])
+    return sorted([p for p in Path("/dev/").glob("video*") if is_valid_device(p)])
 
