@@ -1,7 +1,9 @@
 from .backend import v4l2cam, camsys_read, is_valid_device, get_formats
 from pathlib import Path
 import numpy as np
-__all__ = ["Multicam", "Camera"]
+
+__all__ = ["Multicam", "Camera", "list_cams"]
+
 class Camera():
     '''
       Set up a camera.
@@ -182,4 +184,7 @@ class Multicam():
     def __exit__(self, type, value, traceback): self.stop()
         
     def __del__(self): self.stop()
+    
+def list_cams():
+    return sorted([p for p in Path("/dev/").glob("video*") if mc.is_valid_device(p)])
 
