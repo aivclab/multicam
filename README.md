@@ -1,5 +1,10 @@
 Synchronized reading from multiple webcams using v4l2 on Linux
 --------------------------------------------------------------
+Due to buffering, getting synchronized real-time video from a
+single or multiple webcams is difficult, if not impossible.
+This framework is intended fix just that.
+
+When using multiple cameras, it is a requirement that they support the same configuration.
 
 Installation
 ------------
