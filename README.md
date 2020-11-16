@@ -8,8 +8,8 @@ When using multiple cameras, it is a requirement that they support the same conf
 
 Installation
 ------------
-`sudo apt install libjpeg-turbo8-dev libjpeg-dev cmake`
-`python setup.py install` for system-wide installation
+`sudo apt install libjpeg-turbo8-dev libjpeg-dev cmake`  
+`python setup.py install` for system-wide installation  
 `python setup.py install --user` for user-specific installation
 
 Use
